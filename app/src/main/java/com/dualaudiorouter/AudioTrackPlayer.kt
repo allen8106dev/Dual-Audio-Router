@@ -3,107 +3,119 @@ package com.example.dualaudiorouter
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
-import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import java.io.FileInputStream
 import java.io.IOException
 
 /**
- * Custom AudioTrack player with device routing support
- * Handles individual audio track playback with specified device routing
+ * Audio player using MediaPlayer with device routing support
+ * Properly handles encoded audio files (MP3, WAV, AAC, etc.)
  */
 class AudioTrackPlayer(
     private val context: Context,
     private val trackName: String
 ) {
-    private var audioTrack: AudioTrack? = null
+    private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
     private var isPaused = false
-    private var audioData: ByteArray? = null
-    private var currentPosition = 0
+    private var currentUri: Uri? = null
     private val handler = Handler(Looper.getMainLooper())
 
     private var onProgressUpdate: ((Int, Int) -> Unit)? = null
     private var onPlaybackComplete: (() -> Unit)? = null
     private var onError: ((String) -> Unit)? = null
 
+    // Progress tracking
+    private var progressRunnable: Runnable? = null
+
     /**
      * Load audio file from URI
      */
     fun loadAudioFile(uri: Uri): Boolean {
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            audioData = inputStream?.readBytes()
-            inputStream?.close()
-
-            if (audioData != null) {
-                Log.d(TAG, "$trackName: Audio file loaded, size: ${audioData!!.size} bytes")
-                true
-            } else {
-                onError?.invoke("Failed to read audio data")
-                false
-            }
+            currentUri = uri
+            Log.d(TAG, "$trackName: Audio file URI saved: $uri")
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "$trackName: Error loading audio file", e)
+            Log.e(TAG, "$trackName: Error saving audio URI", e)
             onError?.invoke("Error loading file: ${e.message}")
             false
         }
     }
 
     /**
-     * Prepare AudioTrack with specified device
+     * Prepare MediaPlayer with specified device
      */
     fun prepareAudioTrack(targetDevice: AudioDevice?): Boolean {
         try {
-            val audioData = this.audioData ?: return false
+            val uri = currentUri ?: return false
 
-            // Create AudioTrack with proper configuration
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
+            // Release any existing MediaPlayer
+            release()
 
-            val audioFormat = AudioFormat.Builder()
-                .setSampleRate(44100) // Standard sample rate
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                .build()
+            // Create new MediaPlayer
+            mediaPlayer = MediaPlayer().apply {
 
-            val bufferSize = AudioTrack.getMinBufferSize(
-                44100,
-                AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
+                // Set audio attributes
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
 
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(audioAttributes)
-                .setAudioFormat(audioFormat)
-                .setBufferSizeInBytes(bufferSize * 2) // Double buffer for smooth playback
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
+                // Set data source
+                setDataSource(context, uri)
 
-            // Set preferred device if API 23+ and device is available
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                targetDevice?.deviceInfo?.let { deviceInfo ->
-                    val success = audioTrack?.setPreferredDevice(deviceInfo) == true
-                    Log.d(TAG, "$trackName: Set preferred device ${deviceInfo.productName}: $success")
+                // Set preferred device for routing (API 23+)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    targetDevice?.deviceInfo?.let { deviceInfo ->
+                        val success = setPreferredDevice(deviceInfo)
+                        Log.d(TAG, "$trackName: Set preferred device ${deviceInfo.productName}: $success")
 
-                    if (!success) {
-                        Log.w(TAG, "$trackName: Failed to set preferred device, using default")
+                        if (!success) {
+                            Log.w(TAG, "$trackName: Failed to set preferred device, using default")
+                        }
                     }
                 }
+
+                // Set completion listener
+                setOnCompletionListener {
+                    Log.d(TAG, "$trackName: Playback completed")
+                    //isPlaying = false
+                    isPaused = false
+                    stopProgressTracking()
+                    handler.post {
+                        onPlaybackComplete?.invoke()
+                    }
+                }
+
+                // Set error listener
+                setOnErrorListener { mp, what, extra ->
+                    Log.e(TAG, "$trackName: MediaPlayer error: what=$what, extra=$extra")
+                    handler.post {
+                        onError?.invoke("Playback error: $what")
+                    }
+                    true // Indicate we handled the error
+                }
+
+                // Prepare synchronously
+                prepare()
             }
 
-            return audioTrack?.state == AudioTrack.STATE_INITIALIZED
+            Log.d(TAG, "$trackName: MediaPlayer prepared successfully")
+            return true
 
+        } catch (e: IOException) {
+            Log.e(TAG, "$trackName: IO error preparing MediaPlayer", e)
+            onError?.invoke("Cannot play this audio format")
+            return false
         } catch (e: Exception) {
-            Log.e(TAG, "$trackName: Error preparing AudioTrack", e)
+            Log.e(TAG, "$trackName: Error preparing MediaPlayer", e)
             onError?.invoke("Error preparing audio: ${e.message}")
             return false
         }
@@ -113,68 +125,79 @@ class AudioTrackPlayer(
      * Start playback
      */
     fun play() {
-        if (audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
-            onError?.invoke("AudioTrack not properly initialized")
+        val player = mediaPlayer
+        if (player == null) {
+            onError?.invoke("MediaPlayer not prepared")
             return
         }
 
-        if (isPlaying) return
+        try {
+            if (isPaused) {
+                // Resume from pause
+                player.start()
+                isPaused = false
+            } else {
+                // Start from beginning
+                player.seekTo(0)
+                player.start()
+            }
 
-        isPlaying = true
-        isPaused = false
+            isPlaying = true
+            startProgressTracking()
 
-        audioTrack?.play()
+            Log.d(TAG, "$trackName: Playback started")
 
-        // Start playback in background thread
-        Thread {
-            playAudioData()
-        }.start()
-
-        Log.d(TAG, "$trackName: Playback started")
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error starting playback", e)
+            onError?.invoke("Error starting playback: ${e.message}")
+        }
     }
 
     /**
      * Pause playback
      */
     fun pause() {
-        if (!isPlaying || isPaused) return
+        val player = mediaPlayer
+        if (player == null || !isPlaying || isPaused) return
 
-        isPaused = true
-        audioTrack?.pause()
-        Log.d(TAG, "$trackName: Playback paused")
+        try {
+            player.pause()
+            isPaused = true
+            stopProgressTracking()
+            Log.d(TAG, "$trackName: Playback paused")
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error pausing playback", e)
+        }
     }
 
     /**
      * Resume playback
      */
     fun resume() {
-        if (!isPlaying || !isPaused) return
-
-        isPaused = false
-        audioTrack?.play()
-
-        // Continue playback
-        Thread {
-            playAudioData()
-        }.start()
-
-        Log.d(TAG, "$trackName: Playback resumed")
+        if (!isPaused) return
+        play() // This will handle resuming
     }
 
     /**
      * Stop playback
      */
     fun stop() {
-        if (!isPlaying) return
+        val player = mediaPlayer ?: return
 
-        isPlaying = false
-        isPaused = false
-        currentPosition = 0
+        try {
+            if (isPlaying) {
+                player.stop()
+                player.prepare() // Re-prepare for next play
+            }
 
-        audioTrack?.stop()
-        audioTrack?.flush()
+            isPlaying = false
+            isPaused = false
+            stopProgressTracking()
 
-        Log.d(TAG, "$trackName: Playback stopped")
+            Log.d(TAG, "$trackName: Playback stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error stopping playback", e)
+        }
     }
 
     /**
@@ -182,56 +205,55 @@ class AudioTrackPlayer(
      */
     fun release() {
         stop()
-        audioTrack?.release()
-        audioTrack = null
-        audioData = null
+        stopProgressTracking()
+
+        mediaPlayer?.release()
+        mediaPlayer = null
+        currentUri = null
+
         Log.d(TAG, "$trackName: Resources released")
     }
 
     /**
-     * Play audio data in chunks
+     * Start progress tracking
      */
-    private fun playAudioData() {
-        val data = audioData ?: return
-        val chunkSize = 4096
+    private fun startProgressTracking() {
+        stopProgressTracking()
 
-        while (isPlaying && currentPosition < data.size) {
-            if (isPaused) {
-                Thread.sleep(100)
-                continue
-            }
+        progressRunnable = object : Runnable {
+            override fun run() {
+                val player = mediaPlayer
+                if (player != null && isPlaying && !isPaused) {
+                    try {
+                        val currentPosition = player.currentPosition
+                        val duration = player.duration
 
-            val remainingBytes = data.size - currentPosition
-            val bytesToWrite = minOf(chunkSize, remainingBytes)
+                        handler.post {
+                            onProgressUpdate?.invoke(currentPosition, duration)
+                        }
 
-            val bytesWritten = audioTrack?.write(
-                data,
-                currentPosition,
-                bytesToWrite
-            ) ?: 0
-
-            if (bytesWritten > 0) {
-                currentPosition += bytesWritten
-
-                // Update progress on main thread
-                handler.post {
-                    onProgressUpdate?.invoke(currentPosition, data.size)
+                        // Schedule next update
+                        handler.postDelayed(this, 100) // Update every 100ms
+                    } catch (e: Exception) {
+                        Log.w(TAG, "$trackName: Error getting playback position", e)
+                    }
                 }
-            } else {
-                break
-            }
-
-            // Small delay to prevent overwhelming the audio system
-            Thread.sleep(10)
-        }
-
-        // Playback complete
-        if (currentPosition >= data.size) {
-            handler.post {
-                isPlaying = false
-                onPlaybackComplete?.invoke()
             }
         }
+
+        progressRunnable?.let {
+            handler.post(it)
+        }
+    }
+
+    /**
+     * Stop progress tracking
+     */
+    private fun stopProgressTracking() {
+        progressRunnable?.let { runnable ->
+            handler.removeCallbacks(runnable)
+        }
+        progressRunnable = null
     }
 
     /**
@@ -256,10 +278,10 @@ class AudioTrackPlayer(
     }
 
     /**
-     * Get current playback state
+     * Get current playback state - RENAMED FUNCTIONS TO AVOID CONFLICT
      */
-    fun isPlaying(): Boolean = isPlaying && !isPaused
-    fun isPaused(): Boolean = isPaused
+    fun isCurrentlyPlaying(): Boolean = isPlaying && !isPaused
+    fun isCurrentlyPaused(): Boolean = isPaused
 
     companion object {
         private const val TAG = "AudioTrackPlayer"
