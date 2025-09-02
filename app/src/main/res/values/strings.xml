@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Dual Audio Router</string>
+    <string name="select_file_a">Select Audio File A</string>
+    <string name="select_file_b">Select Audio File B</string>
+    <string name="no_file_selected">No file selected</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+    <string name="status">Status</string>
+    <string name="ready">Ready to play</string>
+</resources>
