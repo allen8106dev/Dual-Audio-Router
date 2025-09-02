@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var tvStatus: TextView
 
-    // NEW: Delay control elements
+    // Delay control elements
     private lateinit var seekBarDelayA: SeekBar
     private lateinit var seekBarDelayB: SeekBar
     private lateinit var tvDelayA: TextView
@@ -46,6 +46,10 @@ class MainActivity : AppCompatActivity() {
     private var selectedFileA: Uri? = null
     private var selectedFileB: Uri? = null
     private var availableDevices = listOf<AudioDevice>()
+
+    // NEW: Track playback states
+    private var isTrackAPlaying = false
+    private var isTrackBPlaying = false
 
     // File picker launchers
     private val filePickerA = registerForActivityResult(
@@ -100,7 +104,7 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         tvStatus = findViewById(R.id.tvStatus)
 
-        // NEW: Initialize delay controls
+        // Initialize delay controls
         seekBarDelayA = findViewById(R.id.seekBarDelayA)
         seekBarDelayB = findViewById(R.id.seekBarDelayB)
         tvDelayA = findViewById(R.id.tvDelayA)
@@ -129,7 +133,7 @@ class MainActivity : AppCompatActivity() {
             stopPlayback()
         }
 
-        // NEW: Setup delay controls
+        // Setup delay controls
         seekBarDelayA.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -171,8 +175,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         playerA.setOnPlaybackCompleteListener {
-            updateStatus("Playback completed")
-            resetPlaybackControls()
+            isTrackAPlaying = false
+            updateStatus("Track A playback completed")
+            if (!isTrackBPlaying) {
+                resetPlaybackControls()
+            }
+        }
+
+        playerB.setOnPlaybackCompleteListener {
+            isTrackBPlaying = false
+            updateStatus("Track B playback completed")
+            if (!isTrackAPlaying) {
+                resetPlaybackControls()
+            }
         }
 
         playerA.setOnErrorListener { error ->
@@ -183,7 +198,7 @@ class MainActivity : AppCompatActivity() {
             showError("Player B Error: $error")
         }
 
-        updateStatus("Ready - Select audio files and adjust sync delays if needed")
+        updateStatus("Ready - Select audio files and adjust settings")
     }
 
     private fun checkAndRequestPermissions() {
@@ -220,13 +235,46 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // NEW: Initialize audio system with Bluetooth monitoring
     private fun initializeAudioSystem() {
-        audioDeviceManager = AudioDeviceManager(this) { devices ->
-            availableDevices = devices
-            updateDeviceSpinners(devices)
-        }
+        audioDeviceManager = AudioDeviceManager(
+            context = this,
+            onDevicesChanged = { devices ->
+                availableDevices = devices
+                updateDeviceSpinners(devices)
+            },
+            onBluetoothDisconnected = {
+                handleBluetoothDisconnection()  // NEW: Handle Bluetooth disconnect
+            }
+        )
 
         updateStatus("Audio system initialized. Found ${availableDevices.size} devices.")
+    }
+
+    // NEW: Handle Bluetooth disconnection
+    private fun handleBluetoothDisconnection() {
+        Log.d(TAG, "Handling Bluetooth disconnection")
+
+        // Stop Track B only if it's playing
+        if (isTrackBPlaying && playerB.isCurrentlyPlaying()) {
+            playerB.stop()
+            isTrackBPlaying = false
+
+            // Show notification to user
+            Toast.makeText(this, "Bluetooth disconnected - Track B stopped", Toast.LENGTH_LONG).show()
+            updateStatus("Bluetooth disconnected: Track B stopped, Track A continues")
+
+            // Update UI if only Track A is playing
+            if (isTrackAPlaying && playerA.isCurrentlyPlaying()) {
+                updateStatus("Track A continues playing after Bluetooth disconnect")
+            } else {
+                // Both tracks stopped, reset controls
+                resetPlaybackControls()
+            }
+        } else {
+            // Track B wasn't playing, just update status
+            updateStatus("Bluetooth disconnected (Track B was not playing)")
+        }
     }
 
     private fun updateDeviceSpinners(devices: List<AudioDevice>) {
@@ -370,14 +418,16 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
-            // NEW: Show delay info
             val delayA = playerA.getCurrentDelay()
             val delayB = playerB.getCurrentDelay()
             updateStatus("Starting playback with delays: A=${delayA}ms, B=${delayB}ms")
 
-            // Start both tracks (delays will be applied automatically)
+            // Start both tracks and track their states
             playerA.play()
             playerB.play()
+
+            isTrackAPlaying = true
+            isTrackBPlaying = true
 
             btnPlay.isEnabled = false
             btnPause.isEnabled = true
@@ -402,6 +452,9 @@ class MainActivity : AppCompatActivity() {
     private fun stopPlayback() {
         playerA.stop()
         playerB.stop()
+
+        isTrackAPlaying = false
+        isTrackBPlaying = false
 
         resetPlaybackControls()
         updateStatus("Playback stopped")

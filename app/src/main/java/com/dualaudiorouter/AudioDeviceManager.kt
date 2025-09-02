@@ -9,12 +9,12 @@ import android.os.Looper
 import android.util.Log
 
 /**
- * Manages audio device detection and routing
- * Handles device enumeration, selection, and change notifications
+ * Manages audio device detection and routing with Bluetooth disconnect monitoring
  */
 class AudioDeviceManager(
     private val context: Context,
-    private val onDevicesChanged: (List<AudioDevice>) -> Unit
+    private val onDevicesChanged: (List<AudioDevice>) -> Unit,
+    private val onBluetoothDisconnected: () -> Unit  // NEW: Bluetooth disconnect callback
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val handler = Handler(Looper.getMainLooper())
@@ -23,11 +23,36 @@ class AudioDeviceManager(
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
             Log.d(TAG, "Audio devices added: ${addedDevices.size}")
+            for (device in addedDevices) {
+                if (device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP) {
+                    Log.d(TAG, "Bluetooth A2DP device connected: ${device.productName}")
+                }
+            }
             updateDeviceList()
         }
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
             Log.d(TAG, "Audio devices removed: ${removedDevices.size}")
+
+            // Check if any Bluetooth A2DP devices were disconnected
+            var bluetoothDisconnected = false
+            for (device in removedDevices) {
+                Log.d(TAG, "Device removed: ${device.productName} (Type: ${device.type})")
+
+                if (device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                    Log.d(TAG, "Bluetooth device disconnected: ${device.productName}")
+                    bluetoothDisconnected = true
+                }
+            }
+
+            // Notify about Bluetooth disconnection
+            if (bluetoothDisconnected) {
+                handler.post {
+                    onBluetoothDisconnected()
+                }
+            }
+
             updateDeviceList()
         }
     }
@@ -120,6 +145,16 @@ class AudioDeviceManager(
      */
     fun getBluetoothA2DPDevices(): List<AudioDevice> {
         return currentDevices.filter { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+    }
+
+    /**
+     * Check if any Bluetooth device is currently connected
+     */
+    fun isBluetoothConnected(): Boolean {
+        return currentDevices.any {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+        }
     }
 
     /**
