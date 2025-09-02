@@ -7,4 +7,11 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- NEW: Splash screen colors -->
+    <color name="splash_background">#FF1A1A1A</color>
+    <color name="splash_text_primary">#FFFFFFFF</color>
+    <color name="splash_text_secondary">#FFCCCCCC</color>
+    <color name="splash_text_tertiary">#FF888888</color>
+    <color name="splash_accent">#FF6200EE</color>
 </resources>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#FF1A1A1A"
+    android:padding="32dp">
+
+    <!-- App Icon -->
+    <ImageView
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:src="@mipmap/ic_launcher"
+        android:layout_marginBottom="32dp"
+        android:contentDescription="App Icon" />
+
+    <!-- App Name -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Dual Audio Router"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFFFF"
+        android:layout_marginBottom="16dp"
+        android:gravity="center" />
+
+    <!-- App Subtitle -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Simultaneous Audio Routing"
+        android:textSize="16sp"
+        android:textColor="#FFCCCCCC"
+        android:layout_marginBottom="48dp"
+        android:gravity="center" />
+
+    <!-- Version Info - THIS IS THE TextView THAT WAS MISSING -->
+    <TextView
+        android:id="@+id/tvVersion"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Version 1.0"
+        android:textSize="14sp"
+        android:textColor="#FFCCCCCC"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Developer Info -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Developed by Allen Joseph"
+        android:textSize="14sp"
+        android:textColor="#FFCCCCCC"
+        android:layout_marginBottom="32dp" />
+
+    <!-- Loading Animation -->
+    <ProgressBar
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:indeterminate="true" />
+
+    <!-- Copyright -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="© 2025 All Rights Reserved"
+        android:textSize="12sp"
+        android:textColor="#FF888888"
+        android:layout_marginTop="32dp" />
+
+</LinearLayout>
