@@ -3,7 +3,6 @@ package com.example.dualaudiorouter
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -11,17 +10,16 @@ import android.util.Log
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
-    // UI elements - no binding
+    // UI elements
     private lateinit var btnSelectFileA: Button
     private lateinit var btnSelectFileB: Button
     private lateinit var tvFileNameA: TextView
@@ -33,6 +31,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStop: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var tvStatus: TextView
+
+    // NEW: Delay control elements
+    private lateinit var seekBarDelayA: SeekBar
+    private lateinit var seekBarDelayB: SeekBar
+    private lateinit var tvDelayA: TextView
+    private lateinit var tvDelayB: TextView
+    private lateinit var btnResetDelays: Button
 
     private lateinit var audioDeviceManager: AudioDeviceManager
     private lateinit var playerA: AudioTrackPlayer
@@ -71,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize UI elements with findViewById
+        // Initialize UI elements
         initializeViews()
 
         // Initialize audio players
@@ -94,11 +99,15 @@ class MainActivity : AppCompatActivity() {
         btnStop = findViewById(R.id.btnStop)
         progressBar = findViewById(R.id.progressBar)
         tvStatus = findViewById(R.id.tvStatus)
+
+        // NEW: Initialize delay controls
+        seekBarDelayA = findViewById(R.id.seekBarDelayA)
+        seekBarDelayB = findViewById(R.id.seekBarDelayB)
+        tvDelayA = findViewById(R.id.tvDelayA)
+        tvDelayB = findViewById(R.id.tvDelayB)
+        btnResetDelays = findViewById(R.id.btnResetDelays)
     }
 
-    /**
-     * Setup UI event handlers
-     */
     private fun setupUI() {
         btnSelectFileA.setOnClickListener {
             filePickerA.launch("audio/*")
@@ -120,6 +129,41 @@ class MainActivity : AppCompatActivity() {
             stopPlayback()
         }
 
+        // NEW: Setup delay controls
+        seekBarDelayA.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    playerA.setDelay(progress.toLong())
+                    tvDelayA.text = "${progress}ms"
+                    updateStatus("Track A delay: ${progress}ms")
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        seekBarDelayB.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    playerB.setDelay(progress.toLong())
+                    tvDelayB.text = "${progress}ms"
+                    updateStatus("Track B delay: ${progress}ms")
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        btnResetDelays.setOnClickListener {
+            seekBarDelayA.progress = 0
+            seekBarDelayB.progress = 0
+            playerA.setDelay(0)
+            playerB.setDelay(0)
+            tvDelayA.text = "0ms"
+            tvDelayB.text = "0ms"
+            updateStatus("Delays reset to 0ms")
+        }
+
         // Setup progress listeners
         playerA.setOnProgressUpdateListener { current, total ->
             val progress = if (total > 0) (current * 100 / total) else 0
@@ -139,16 +183,12 @@ class MainActivity : AppCompatActivity() {
             showError("Player B Error: $error")
         }
 
-        updateStatus("Ready - Please select audio files and check permissions")
+        updateStatus("Ready - Select audio files and adjust sync delays if needed")
     }
 
-    /**
-     * Check and request necessary permissions
-     */
     private fun checkAndRequestPermissions() {
         val permissionsToRequest = mutableListOf<String>()
 
-        // Storage permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
@@ -159,7 +199,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Bluetooth permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -170,7 +209,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Audio permissions
         if (checkSelfPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.MODIFY_AUDIO_SETTINGS)
         }
@@ -182,9 +220,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Initialize audio device management
-     */
     private fun initializeAudioSystem() {
         audioDeviceManager = AudioDeviceManager(this) { devices ->
             availableDevices = devices
@@ -194,9 +229,6 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Audio system initialized. Found ${availableDevices.size} devices.")
     }
 
-    /**
-     * Update device selection spinners
-     */
     private fun updateDeviceSpinners(devices: List<AudioDevice>) {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, devices)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -204,7 +236,6 @@ class MainActivity : AppCompatActivity() {
         spinnerDeviceA.adapter = adapter
         spinnerDeviceB.adapter = adapter
 
-        // Auto-select preferred devices
         val speakerDevice = devices.find { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         val bluetoothDevice = devices.find { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
 
@@ -221,14 +252,33 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Device spinners updated with ${devices.size} devices")
     }
 
-    /**
-     * Handle file selection with proper permission handling
-     */
     private fun handleFileSelection(uri: Uri, isTrackA: Boolean) {
         try {
             val fileName = getFileName(uri)
+            Log.d(TAG, "Processing file selection: $fileName, URI: $uri")
 
-            // Try to take persistent permission, but don't fail if it's not available
+            var fileSize = 0L
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val buffer = ByteArray(1024)
+                    val bytesRead = stream.read(buffer)
+                    if (bytesRead > 0) {
+                        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                            val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                            cursor.moveToFirst()
+                            fileSize = cursor.getLong(sizeIndex)
+                        }
+                        Log.d(TAG, "File access successful: $fileName, size: $fileSize bytes")
+                    } else {
+                        throw Exception("File appears to be empty or unreadable")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Cannot access selected file: $fileName", e)
+                showError("Cannot access selected file. Please choose a different audio file.")
+                return
+            }
+
             try {
                 contentResolver.takePersistableUriPermission(
                     uri,
@@ -236,33 +286,20 @@ class MainActivity : AppCompatActivity() {
                 )
                 Log.d(TAG, "Persistent permission granted for: $fileName")
             } catch (e: SecurityException) {
-                // This is okay - some URIs don't support persistent permissions
-                // The URI will still work for immediate access
-                Log.w(TAG, "Persistent permission not available for: $fileName - ${e.message}")
+                Log.w(TAG, "Persistent permission not supported for: $fileName")
+            } catch (e: UnsupportedOperationException) {
+                Log.w(TAG, "Persistent permission not available for: $fileName")
             } catch (e: Exception) {
-                Log.w(TAG, "Could not take persistent permission for: $fileName - ${e.message}")
-            }
-
-            // Test if we can actually read the file
-            try {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    val testBytes = ByteArray(1024)
-                    stream.read(testBytes)
-                    Log.d(TAG, "File access test successful for: $fileName")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Cannot read selected file: $fileName", e)
-                showError("Cannot read selected file. Please choose a different file.")
-                return
+                Log.w(TAG, "Could not take persistent permission: ${e.message}")
             }
 
             if (isTrackA) {
                 selectedFileA = uri
-                tvFileNameA.text = fileName
+                tvFileNameA.text = "$fileName (${formatFileSize(fileSize)})"
                 updateStatus("File A selected: $fileName")
             } else {
                 selectedFileB = uri
-                tvFileNameB.text = fileName
+                tvFileNameB.text = "$fileName (${formatFileSize(fileSize)})"
                 updateStatus("File B selected: $fileName")
             }
 
@@ -272,24 +309,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Get file name from URI
-     */
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
+            else -> "${bytes / (1024 * 1024 * 1024)} GB"
+        }
+    }
+
     private fun getFileName(uri: Uri): String {
         return try {
             contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                cursor.moveToFirst()
-                cursor.getString(nameIndex)
-            } ?: "Unknown file"
+                if (nameIndex >= 0 && cursor.moveToFirst()) {
+                    val name = cursor.getString(nameIndex)
+                    if (!name.isNullOrEmpty()) name else "Audio file"
+                } else {
+                    "Audio file"
+                }
+            } ?: "Audio file"
         } catch (e: Exception) {
+            Log.w(TAG, "Could not get file name from URI: $uri", e)
             "Audio file"
         }
     }
 
-    /**
-     * Play both audio tracks simultaneously
-     */
     private fun playDualAudio() {
         if (selectedFileA == null || selectedFileB == null) {
             showError("Please select both audio files first")
@@ -302,13 +347,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         try {
-            // Get selected devices
             val deviceA = spinnerDeviceA.selectedItem as AudioDevice
             val deviceB = spinnerDeviceB.selectedItem as AudioDevice
 
             updateStatus("Loading audio files...")
 
-            // Load audio files
             val fileALoaded = playerA.loadAudioFile(selectedFileA!!)
             val fileBLoaded = playerB.loadAudioFile(selectedFileB!!)
 
@@ -319,7 +362,6 @@ class MainActivity : AppCompatActivity() {
 
             updateStatus("Preparing audio tracks...")
 
-            // Prepare audio tracks with device routing
             val trackAPrepared = playerA.prepareAudioTrack(deviceA)
             val trackBPrepared = playerB.prepareAudioTrack(deviceB)
 
@@ -328,15 +370,15 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
-            updateStatus("Starting synchronized playback...")
+            // NEW: Show delay info
+            val delayA = playerA.getCurrentDelay()
+            val delayB = playerB.getCurrentDelay()
+            updateStatus("Starting playback with delays: A=${delayA}ms, B=${delayB}ms")
 
-            // Start both tracks as close to simultaneously as possible
+            // Start both tracks (delays will be applied automatically)
             playerA.play()
             playerB.play()
 
-            updateStatus("Playing: Track A -> ${deviceA.name}, Track B -> ${deviceB.name}")
-
-            // Update UI
             btnPlay.isEnabled = false
             btnPause.isEnabled = true
             btnStop.isEnabled = true
@@ -347,9 +389,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Pause both audio tracks
-     */
     private fun pausePlayback() {
         playerA.pause()
         playerB.pause()
@@ -360,9 +399,6 @@ class MainActivity : AppCompatActivity() {
         btnPause.isEnabled = false
     }
 
-    /**
-     * Stop both audio tracks
-     */
     private fun stopPlayback() {
         playerA.stop()
         playerB.stop()
@@ -371,9 +407,6 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Playback stopped")
     }
 
-    /**
-     * Reset playback control buttons
-     */
     private fun resetPlaybackControls() {
         btnPlay.isEnabled = true
         btnPause.isEnabled = false
@@ -381,17 +414,11 @@ class MainActivity : AppCompatActivity() {
         progressBar.progress = 0
     }
 
-    /**
-     * Update status display
-     */
     private fun updateStatus(status: String) {
         tvStatus.text = status
         Log.d(TAG, "Status: $status")
     }
 
-    /**
-     * Show error message
-     */
     private fun showError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         updateStatus("Error: $message")
@@ -401,7 +428,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
 
-        // Clean up resources
         playerA.release()
         playerB.release()
 
