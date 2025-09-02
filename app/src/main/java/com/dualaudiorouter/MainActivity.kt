@@ -222,17 +222,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Handle file selection
+     * Handle file selection with proper permission handling
      */
     private fun handleFileSelection(uri: Uri, isTrackA: Boolean) {
         try {
-            // Take persistent permission for the selected file
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-
             val fileName = getFileName(uri)
+
+            // Try to take persistent permission, but don't fail if it's not available
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                Log.d(TAG, "Persistent permission granted for: $fileName")
+            } catch (e: SecurityException) {
+                // This is okay - some URIs don't support persistent permissions
+                // The URI will still work for immediate access
+                Log.w(TAG, "Persistent permission not available for: $fileName - ${e.message}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not take persistent permission for: $fileName - ${e.message}")
+            }
+
+            // Test if we can actually read the file
+            try {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val testBytes = ByteArray(1024)
+                    stream.read(testBytes)
+                    Log.d(TAG, "File access test successful for: $fileName")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Cannot read selected file: $fileName", e)
+                showError("Cannot read selected file. Please choose a different file.")
+                return
+            }
 
             if (isTrackA) {
                 selectedFileA = uri
