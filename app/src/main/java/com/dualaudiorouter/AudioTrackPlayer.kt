@@ -24,6 +24,8 @@ class AudioTrackPlayer(
     // NEW: Position tracking for synchronization
     private var savedPosition: Int = 0
 
+    // NEW: Volume control
+    private var currentVolume: Float = 1.0f // Default to full volume
     private var onProgressUpdate: ((Int, Int) -> Unit)? = null
     private var onPlaybackComplete: (() -> Unit)? = null
     private var onError: ((String) -> Unit)? = null
@@ -41,6 +43,40 @@ class AudioTrackPlayer(
         }
     }
 
+    // NEW: Set volume for this track (0.0 = silent, 1.0 = full volume)
+    fun setVolume(volume: Float) {
+        val clampedVolume = volume.coerceIn(0.0f, 1.0f)
+        currentVolume = clampedVolume
+        mediaPlayer?.setVolume(clampedVolume, clampedVolume)
+        Log.d(TAG, "$trackName: Volume set to ${(clampedVolume * 100).toInt()}%")
+    }
+
+    // NEW: Get current volume
+    fun getVolume(): Float = currentVolume
+
+    // NEW: Set volume as percentage (0-100)
+    fun setVolumePercent(percent: Int) {
+        val volume = (percent.coerceIn(0, 100) / 100.0f)
+        setVolume(volume)
+    }
+
+    // NEW: Get volume as percentage (0-100)
+    fun getVolumePercent(): Int = (currentVolume * 100).toInt()
+
+    // NEW: Mute/unmute toggle
+    fun toggleMute(): Boolean {
+        return if (currentVolume > 0.0f) {
+            setVolume(0.0f)
+            true // Now muted
+        } else {
+            setVolume(1.0f)
+            false // Now unmuted
+        }
+    }
+
+    // NEW: Check if muted
+    fun isMuted(): Boolean = currentVolume == 0.0f
+    // UPDATED: Apply volume when MediaPlayer is created
     fun prepareAudioTrack(targetDevice: AudioDevice?): Boolean {
         try {
             val uri = audioUri ?: return false
@@ -77,6 +113,9 @@ class AudioTrackPlayer(
                 }
 
                 prepare()
+
+                // NEW: Apply current volume setting to new MediaPlayer
+                setVolume(currentVolume, currentVolume)
             }
 
             return true

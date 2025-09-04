@@ -169,6 +169,25 @@ class PreferencesManager(context: Context) {
         Log.d(TAG, "🗑️ Cleared Track B preferences")
     }
 
+    // NEW: Save volume settings
+    fun saveVolumeSettings(volumeA: Int, volumeB: Int) {
+        preferences.edit().apply {
+            putInt(KEY_VOLUME_A, volumeA)
+            putInt(KEY_VOLUME_B, volumeB)
+            apply()
+        }
+        Log.d(TAG, "Saved volume settings: A=${volumeA}%, B=${volumeB}%")
+    }
+
+    // NEW: Get saved volume A
+    fun getVolumeA(): Int {
+        return preferences.getInt(KEY_VOLUME_A, 100) // Default to 100%
+    }
+
+    // NEW: Get saved volume B
+    fun getVolumeB(): Int {
+        return preferences.getInt(KEY_VOLUME_B, 100) // Default to 100%
+    }
     companion object {
         private const val TAG = "PreferencesManager"
         private const val PREFS_NAME = "dual_audio_router_prefs"
@@ -183,5 +202,9 @@ class PreferencesManager(context: Context) {
 
         private const val KEY_DELAY_A = "delay_a"
         private const val KEY_DELAY_B = "delay_b"
+
+        // NEW: Volume keys
+        private const val KEY_VOLUME_A = "volume_a"
+        private const val KEY_VOLUME_B = "volume_b"
     }
 }

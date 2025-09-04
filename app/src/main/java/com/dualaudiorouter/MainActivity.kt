@@ -45,6 +45,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDelayB: TextView
     private lateinit var btnResetDelays: Button
 
+    // Volume control elements
+    private lateinit var seekBarVolumeA: SeekBar
+    private lateinit var seekBarVolumeB: SeekBar
+    private lateinit var tvVolumeA: TextView
+    private lateinit var tvVolumeB: TextView
+    private lateinit var btnMuteA: Button
+    private lateinit var btnMuteB: Button
+
     private lateinit var audioDeviceManager: AudioDeviceManager
     private lateinit var playerA: AudioTrackPlayer
     private lateinit var playerB: AudioTrackPlayer
@@ -57,7 +65,7 @@ class MainActivity : AppCompatActivity() {
     private var isTrackAPlaying = false
     private var isTrackBPlaying = false
 
-    // NEW: Pause/resume state management
+    // Pause/resume state management
     private var isPausedState = false
     private var pausedAtTrackAPosition = 0
 
@@ -204,6 +212,23 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "⏱️ Restored delays: A=${savedDelayA}ms, B=${savedDelayB}ms")
         }
 
+        // Restore volume settings
+        val savedVolumeA = preferencesManager.getVolumeA()
+        val savedVolumeB = preferencesManager.getVolumeB()
+
+        seekBarVolumeA.progress = savedVolumeA
+        seekBarVolumeB.progress = savedVolumeB
+        tvVolumeA.text = "${savedVolumeA}%"
+        tvVolumeB.text = "${savedVolumeB}%"
+        playerA.setVolumePercent(savedVolumeA)
+        playerB.setVolumePercent(savedVolumeB)
+
+        // Update mute button states
+        btnMuteA.text = if (savedVolumeA == 0) "Unmute A" else "Mute A"
+        btnMuteB.text = if (savedVolumeB == 0) "Unmute B" else "Mute B"
+
+        Log.d(TAG, "⏱️ Restored volumes: A=${savedVolumeA}%, B=${savedVolumeB}%")
+
         // Show welcome message if any files were restored
         if (selectedFileA != null || selectedFileB != null) {
             updateStatus("🎉 Welcome back! Previous selections restored.")
@@ -289,6 +314,14 @@ class MainActivity : AppCompatActivity() {
         tvDelayA = findViewById(R.id.tvDelayA)
         tvDelayB = findViewById(R.id.tvDelayB)
         btnResetDelays = findViewById(R.id.btnResetDelays)
+
+        // Initialize volume controls
+        seekBarVolumeA = findViewById(R.id.seekBarVolumeA)
+        seekBarVolumeB = findViewById(R.id.seekBarVolumeB)
+        tvVolumeA = findViewById(R.id.tvVolumeA)
+        tvVolumeB = findViewById(R.id.tvVolumeB)
+        btnMuteA = findViewById(R.id.btnMuteA)
+        btnMuteB = findViewById(R.id.btnMuteB)
     }
 
     private fun setupUI() {
@@ -339,6 +372,82 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
+        // Setup volume controls
+        seekBarVolumeA.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    playerA.setVolumePercent(progress)
+                    tvVolumeA.text = "${progress}%"
+                    updateStatus("Track A volume: ${progress}%")
+                    preferencesManager.saveVolumeSettings(progress, seekBarVolumeB.progress)
+
+                    // Update mute button state if volume changes
+                    btnMuteA.text = if (progress == 0) "Unmute A" else "Mute A"
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        seekBarVolumeB.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    playerB.setVolumePercent(progress)
+                    tvVolumeB.text = "${progress}%"
+                    updateStatus("Track B volume: ${progress}%")
+                    preferencesManager.saveVolumeSettings(seekBarVolumeA.progress, progress)
+
+                    // Update mute button state if volume changes
+                    btnMuteB.text = if (progress == 0) "Unmute B" else "Mute B"
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        // Mute/unmute buttons
+        btnMuteA.setOnClickListener {
+            val currentVolume = seekBarVolumeA.progress
+            if (currentVolume > 0) {
+                // Mute Track A
+                seekBarVolumeA.progress = 0
+                tvVolumeA.text = "0%"
+                playerA.setVolumePercent(0)
+                btnMuteA.text = "Unmute A"
+                updateStatus("Track A muted")
+            } else {
+                // Unmute Track A
+                seekBarVolumeA.progress = 100
+                tvVolumeA.text = "100%"
+                playerA.setVolumePercent(100)
+                btnMuteA.text = "Mute A"
+                updateStatus("Track A unmuted")
+            }
+            // Save volume change
+            preferencesManager.saveVolumeSettings(seekBarVolumeA.progress, seekBarVolumeB.progress)
+        }
+
+        btnMuteB.setOnClickListener {
+            val currentVolume = seekBarVolumeB.progress
+            if (currentVolume > 0) {
+                // Mute Track B
+                seekBarVolumeB.progress = 0
+                tvVolumeB.text = "0%"
+                playerB.setVolumePercent(0)
+                btnMuteB.text = "Unmute B"
+                updateStatus("Track B muted")
+            } else {
+                // Unmute Track B
+                seekBarVolumeB.progress = 100
+                tvVolumeB.text = "100%"
+                playerB.setVolumePercent(100)
+                btnMuteB.text = "Mute B"
+                updateStatus("Track B unmuted")
+            }
+            // Save volume change
+            preferencesManager.saveVolumeSettings(seekBarVolumeA.progress, seekBarVolumeB.progress)
+        }
+
         btnResetDelays.setOnClickListener {
             seekBarDelayA.progress = 0
             seekBarDelayB.progress = 0
@@ -354,17 +463,34 @@ class MainActivity : AppCompatActivity() {
         btnResetDelays.setOnLongClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("Clear All Preferences")
-                .setMessage("This will clear all saved files, delays, and device selections. Continue?")
+                .setMessage("This will clear all saved files, delays, volumes, and device selections. Continue?")
                 .setPositiveButton("Clear All") { _, _ ->
                     preferencesManager.clearAll()
+
+                    // Reset file selections
                     selectedFileA = null
                     selectedFileB = null
                     tvFileNameA.text = "No file selected"
                     tvFileNameB.text = "No file selected"
+
+                    // Reset delays
                     seekBarDelayA.progress = 0
                     seekBarDelayB.progress = 0
                     tvDelayA.text = "0ms"
                     tvDelayB.text = "0ms"
+                    playerA.setDelay(0)
+                    playerB.setDelay(0)
+
+                    // Reset volumes
+                    seekBarVolumeA.progress = 100
+                    seekBarVolumeB.progress = 100
+                    tvVolumeA.text = "100%"
+                    tvVolumeB.text = "100%"
+                    playerA.setVolumePercent(100)
+                    playerB.setVolumePercent(100)
+                    btnMuteA.text = "Mute A"
+                    btnMuteB.text = "Mute B"
+
                     updateStatus("All preferences cleared")
                     Toast.makeText(this, "All preferences cleared", Toast.LENGTH_SHORT).show()
                 }
@@ -613,7 +739,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // UPDATED: Play dual audio with resume support
+    // Play dual audio with resume support
     private fun playDualAudio() {
         // Check if this is a resume from pause
         if (isPausedState) {
@@ -688,7 +814,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // NEW: Resume with proper delay synchronization
+    // Resume with proper delay synchronization
     private fun resumePlaybackWithDelay() {
         try {
             // Get current manual delay setting
@@ -728,7 +854,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // UPDATED: Pause playback with synchronization
+    // Pause playback with synchronization
     private fun pausePlayback() {
         if (!isTrackAPlaying && !isTrackBPlaying) {
             Log.d(TAG, "No tracks playing, ignoring pause")
@@ -762,7 +888,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // UPDATED: Stop playback and reset pause state
+    // Stop playback and reset pause state
     private fun stopPlayback() {
         playerA.stop()
         playerB.stop()
@@ -786,7 +912,7 @@ class MainActivity : AppCompatActivity() {
         progressBar.progress = 0
     }
 
-    // NEW: Helper method for time formatting
+    // Helper method for time formatting
     private fun formatTime(milliseconds: Int): String {
         val seconds = milliseconds / 1000
         val minutes = seconds / 60
