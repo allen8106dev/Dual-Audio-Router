@@ -116,62 +116,83 @@ class AudioTrackPlayer(
         }
     }
 
-    // NEW: Pause at specific position (for synchronization)
+    // ENHANCED: Pause at specific position with better timing
     fun pauseAtPosition(positionMs: Int? = null) {
         val player = mediaPlayer
         if (player == null || !playingState || pausedState) return
 
         try {
             // Save current position or use provided position
-            savedPosition = positionMs ?: player.currentPosition
+            val targetPosition = positionMs ?: player.currentPosition
 
-            // Seek to the specified position if provided (for synchronization)
-            if (positionMs != null) {
-                player.seekTo(positionMs)
+            // If we need to seek to a different position, do it first
+            if (positionMs != null && positionMs != player.currentPosition) {
+                player.setOnSeekCompleteListener { mp ->
+                    // Pause after seek completes
+                    mp.pause()
+                    savedPosition = targetPosition
+                    pausedState = true
+                    playingState = false
+                    stopProgressTracking()
+                    Log.d(TAG, "$trackName: Paused at position ${targetPosition}ms after seek")
+
+                    // Clear listener
+                    mp.setOnSeekCompleteListener(null)
+                }
+                player.seekTo(targetPosition)
+            } else {
+                // Just pause at current position
+                savedPosition = targetPosition
+                player.pause()
+                pausedState = true
+                playingState = false
+                stopProgressTracking()
+                Log.d(TAG, "$trackName: Paused at position ${targetPosition}ms")
             }
 
-            // Pause the player
-            player.pause()
-            pausedState = true
-            playingState = false
-            stopProgressTracking()
-
-            Log.d(TAG, "$trackName: Paused at position ${savedPosition}ms")
         } catch (e: Exception) {
             Log.e(TAG, "$trackName: Error pausing at position", e)
         }
     }
 
-    // NEW: Resume from specific position (for synchronization)
+
+    // UPDATED: Resume from specific position with proper seek synchronization
     fun resumeFromPosition(positionMs: Int? = null) {
         val player = mediaPlayer
         if (player == null || !pausedState) return
 
         try {
-            // Seek to specified position before resuming
             val seekPosition = positionMs ?: savedPosition
-            player.seekTo(seekPosition)
             savedPosition = seekPosition
 
-            // Small delay to ensure seek completes
-            handler.postDelayed({
+            // Set up seek completion listener BEFORE seeking
+            player.setOnSeekCompleteListener { mp ->
+                // This runs ONLY after seek actually completes
                 try {
-                    player.start()
+                    mp.start()
                     pausedState = false
                     playingState = true
                     startProgressTracking()
-                    Log.d(TAG, "$trackName: Resumed from position ${seekPosition}ms")
+                    Log.d(TAG, "$trackName: Resumed from position ${seekPosition}ms after seek completion")
+
+                    // Clear the listener to avoid memory leaks
+                    mp.setOnSeekCompleteListener(null)
                 } catch (e: Exception) {
-                    Log.e(TAG, "$trackName: Error starting after seek", e)
+                    Log.e(TAG, "$trackName: Error starting after seek completion", e)
                     onError?.invoke("Error resuming playback: ${e.message}")
                 }
-            }, 50) // 50ms delay for seek to complete
+            }
+
+            // Now perform the seek - playback will start automatically when done
+            player.seekTo(seekPosition)
+            Log.d(TAG, "$trackName: Seeking to position ${seekPosition}ms, will start when complete")
 
         } catch (e: Exception) {
-            Log.e(TAG, "$trackName: Error resuming from position", e)
+            Log.e(TAG, "$trackName: Error setting up resume from position", e)
             onError?.invoke("Error resuming playback: ${e.message}")
         }
     }
+
 
     // Play with delay support
     fun play() {
