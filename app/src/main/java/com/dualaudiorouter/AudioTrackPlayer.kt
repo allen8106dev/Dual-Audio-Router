@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import java.io.IOException
 
 class AudioTrackPlayer(
     private val context: Context,
@@ -19,8 +18,11 @@ class AudioTrackPlayer(
     private var audioUri: Uri? = null
     private val handler = Handler(Looper.getMainLooper())
 
-    // NEW: Delay support
+    // Delay support
     private var delayMs: Long = 0
+
+    // NEW: Position tracking for synchronization
+    private var savedPosition: Int = 0
 
     private var onProgressUpdate: ((Int, Int) -> Unit)? = null
     private var onPlaybackComplete: (() -> Unit)? = null
@@ -85,17 +87,97 @@ class AudioTrackPlayer(
         }
     }
 
-    // NEW: Set delay in milliseconds
+    // Set delay in milliseconds
     fun setDelay(delayMs: Long) {
         this.delayMs = delayMs
         Log.d(TAG, "$trackName: Delay set to ${delayMs}ms")
     }
 
-    // NEW: Play with delay support
+    // NEW: Get current playback position
+    fun getCurrentPosition(): Int {
+        return try {
+            mediaPlayer?.currentPosition ?: savedPosition
+        } catch (e: Exception) {
+            Log.w(TAG, "$trackName: Could not get current position", e)
+            savedPosition
+        }
+    }
+
+    // NEW: Seek to specific position for synchronization
+    fun seekToPosition(positionMs: Int) {
+        val player = mediaPlayer ?: return
+
+        try {
+            savedPosition = positionMs
+            player.seekTo(positionMs)
+            Log.d(TAG, "$trackName: Seeked to position ${positionMs}ms")
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error seeking to $positionMs", e)
+        }
+    }
+
+    // NEW: Pause at specific position (for synchronization)
+    fun pauseAtPosition(positionMs: Int? = null) {
+        val player = mediaPlayer
+        if (player == null || !playingState || pausedState) return
+
+        try {
+            // Save current position or use provided position
+            savedPosition = positionMs ?: player.currentPosition
+
+            // Seek to the specified position if provided (for synchronization)
+            if (positionMs != null) {
+                player.seekTo(positionMs)
+            }
+
+            // Pause the player
+            player.pause()
+            pausedState = true
+            playingState = false
+            stopProgressTracking()
+
+            Log.d(TAG, "$trackName: Paused at position ${savedPosition}ms")
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error pausing at position", e)
+        }
+    }
+
+    // NEW: Resume from specific position (for synchronization)
+    fun resumeFromPosition(positionMs: Int? = null) {
+        val player = mediaPlayer
+        if (player == null || !pausedState) return
+
+        try {
+            // Seek to specified position before resuming
+            val seekPosition = positionMs ?: savedPosition
+            player.seekTo(seekPosition)
+            savedPosition = seekPosition
+
+            // Small delay to ensure seek completes
+            handler.postDelayed({
+                try {
+                    player.start()
+                    pausedState = false
+                    playingState = true
+                    startProgressTracking()
+                    Log.d(TAG, "$trackName: Resumed from position ${seekPosition}ms")
+                } catch (e: Exception) {
+                    Log.e(TAG, "$trackName: Error starting after seek", e)
+                    onError?.invoke("Error resuming playback: ${e.message}")
+                }
+            }, 50) // 50ms delay for seek to complete
+
+        } catch (e: Exception) {
+            Log.e(TAG, "$trackName: Error resuming from position", e)
+            onError?.invoke("Error resuming playback: ${e.message}")
+        }
+    }
+
+    // Play with delay support
     fun play() {
         val player = mediaPlayer ?: return
 
-        if (delayMs > 0) {
+        if (delayMs > 0 && !pausedState) {
             Log.d(TAG, "$trackName: Starting playback with ${delayMs}ms delay")
             handler.postDelayed({
                 startPlayback(player)
@@ -106,7 +188,7 @@ class AudioTrackPlayer(
         }
     }
 
-    // NEW: Extracted playback logic
+    // Extracted playback logic
     private fun startPlayback(player: MediaPlayer) {
         try {
             if (pausedState) {
@@ -114,6 +196,7 @@ class AudioTrackPlayer(
                 pausedState = false
             } else {
                 player.seekTo(0)
+                savedPosition = 0
                 player.start()
             }
 
@@ -126,42 +209,31 @@ class AudioTrackPlayer(
         }
     }
 
+    // UPDATED: Standard pause (uses pauseAtPosition)
     fun pause() {
-        val player = mediaPlayer
-        if (player == null || !playingState || pausedState) return
-
-        try {
-            player.pause()
-            pausedState = true
-            stopProgressTracking()
-            Log.d(TAG, "$trackName: Playback paused")
-        } catch (e: Exception) {
-            Log.e(TAG, "$trackName: Error pausing playback", e)
-        }
+        pauseAtPosition()
     }
 
+    // UPDATED: Standard resume (uses resumeFromPosition)
     fun resume() {
-        if (!pausedState) return
-
-        // For resume, don't apply delay again
-        val player = mediaPlayer ?: return
-        startPlayback(player)
+        resumeFromPosition()
     }
 
     fun stop() {
-        // NEW: Cancel any pending delayed playback
+        // Cancel any pending delayed playback
         handler.removeCallbacksAndMessages(null)
 
         val player = mediaPlayer ?: return
 
         try {
-            if (playingState) {
+            if (playingState || pausedState) {
                 player.stop()
                 player.prepare()
             }
 
             playingState = false
             pausedState = false
+            savedPosition = 0 // Reset position on stop
             stopProgressTracking()
             Log.d(TAG, "$trackName: Playback stopped")
         } catch (e: Exception) {
@@ -226,7 +298,7 @@ class AudioTrackPlayer(
     fun isCurrentlyPlaying(): Boolean = playingState && !pausedState
     fun isCurrentlyPaused(): Boolean = pausedState
 
-    // NEW: Get current delay
+    // Get current delay
     fun getCurrentDelay(): Long = delayMs
 
     companion object {

@@ -20,6 +20,8 @@ import android.content.ComponentName
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 
 class MainActivity : AppCompatActivity() {
 
@@ -55,12 +57,19 @@ class MainActivity : AppCompatActivity() {
     private var isTrackAPlaying = false
     private var isTrackBPlaying = false
 
+    // NEW: Pause/resume state management
+    private var isPausedState = false
+    private var pausedAtTrackAPosition = 0
+
     // Service binding for background persistence
     private var audioService: AudioPlaybackService? = null
     private var isServiceBound = false
 
-    // NEW: Add preferences manager
+    // Preferences manager
     private lateinit var preferencesManager: PreferencesManager
+
+    // Handler for delayed operations
+    private val handler = Handler(Looper.getMainLooper())
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -78,8 +87,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // File picker launchers
-    // FIXED: File picker launchers with persistent permission support
+    // File picker launchers with persistent permission support
     private val filePickerA = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -97,7 +105,6 @@ class MainActivity : AppCompatActivity() {
             handleFileSelection(it, false)
         }
     }
-
 
     // Permission launcher
     private val permissionLauncher = registerForActivityResult(
@@ -118,7 +125,7 @@ class MainActivity : AppCompatActivity() {
         // Initialize UI elements
         initializeViews()
 
-        // NEW: Initialize preferences manager
+        // Initialize preferences manager
         preferencesManager = PreferencesManager(this)
 
         // Initialize audio players
@@ -131,11 +138,11 @@ class MainActivity : AppCompatActivity() {
         setupUI()
         checkAndRequestPermissions()
 
-        // NEW: Restore previous selections after initialization
+        // Restore previous selections after initialization
         restorePreviousSelections()
     }
 
-    // NEW: Restore previously selected files and settings
+    // Restore previously selected files and settings
     private fun restorePreviousSelections() {
         Log.d(TAG, "🔄 Restoring previous selections...")
 
@@ -159,7 +166,6 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Restored Track A: ${savedNameA.substringBefore("(").trim()}")
             } else {
                 Log.w(TAG, "❌ Saved Track A URI is no longer valid or accessible")
-                // Clear invalid preference
                 preferencesManager.clearTrackA()
                 updateStatus("Previous Track A file no longer available")
             }
@@ -179,7 +185,6 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Restored Track B: ${savedNameB.substringBefore("(").trim()}")
             } else {
                 Log.w(TAG, "❌ Saved Track B URI is no longer valid or accessible")
-                // Clear invalid preference
                 preferencesManager.clearTrackB()
                 updateStatus("Previous Track B file no longer available")
             }
@@ -207,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // NEW: Enhanced URI validation
+    // Enhanced URI validation
     private fun isUriValidAndAccessible(uri: Uri): Boolean {
         return try {
             // First check if we still have persistable permission
@@ -233,21 +238,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-    // NEW: Check if URI is still valid
-    private fun isUriValid(uri: Uri): Boolean {
-        return try {
-            contentResolver.openInputStream(uri)?.use {
-                // Just try to open it
-                true
-            } ?: false
-        } catch (e: Exception) {
-            Log.w(TAG, "URI validation failed: ${e.message}")
-            false
-        }
-    }
-
-    // NEW: Restore device selections after devices are loaded
+    // Restore device selections after devices are loaded
     private fun restoreDeviceSelections() {
         val savedDeviceAIndex = preferencesManager.getDeviceAIndex()
         val savedDeviceBIndex = preferencesManager.getDeviceBIndex()
@@ -302,12 +293,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         btnSelectFileA.setOnClickListener {
-            // Request audio files specifically with OpenDocument
             filePickerA.launch(arrayOf("audio/*"))
         }
 
         btnSelectFileB.setOnClickListener {
-            // Request audio files specifically with OpenDocument
             filePickerB.launch(arrayOf("audio/*"))
         }
 
@@ -323,15 +312,13 @@ class MainActivity : AppCompatActivity() {
             stopPlayback()
         }
 
-        // UPDATED: Setup delay controls with persistence
+        // Setup delay controls with persistence
         seekBarDelayA.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
                     playerA.setDelay(progress.toLong())
                     tvDelayA.text = "${progress}ms"
                     updateStatus("Track A delay: ${progress}ms")
-
-                    // NEW: Save delay setting
                     preferencesManager.saveDelaySettings(progress, seekBarDelayB.progress)
                 }
             }
@@ -345,8 +332,6 @@ class MainActivity : AppCompatActivity() {
                     playerB.setDelay(progress.toLong())
                     tvDelayB.text = "${progress}ms"
                     updateStatus("Track B delay: ${progress}ms")
-
-                    // NEW: Save delay setting
                     preferencesManager.saveDelaySettings(seekBarDelayA.progress, progress)
                 }
             }
@@ -362,20 +347,16 @@ class MainActivity : AppCompatActivity() {
             tvDelayA.text = "0ms"
             tvDelayB.text = "0ms"
             updateStatus("Delays reset to 0ms")
-
-            // NEW: Save reset delays
             preferencesManager.saveDelaySettings(0, 0)
         }
 
-        // NEW: Optional - Long press to clear all preferences
+        // Long press to clear all preferences
         btnResetDelays.setOnLongClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("Clear All Preferences")
                 .setMessage("This will clear all saved files, delays, and device selections. Continue?")
                 .setPositiveButton("Clear All") { _, _ ->
                     preferencesManager.clearAll()
-
-                    // Reset UI
                     selectedFileA = null
                     selectedFileB = null
                     tvFileNameA.text = "No file selected"
@@ -384,14 +365,12 @@ class MainActivity : AppCompatActivity() {
                     seekBarDelayB.progress = 0
                     tvDelayA.text = "0ms"
                     tvDelayB.text = "0ms"
-
                     updateStatus("All preferences cleared")
                     Toast.makeText(this, "All preferences cleared", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
-
-            true // Consume the long click
+            true
         }
 
         // Setup progress listeners
@@ -403,11 +382,9 @@ class MainActivity : AppCompatActivity() {
         playerA.setOnPlaybackCompleteListener {
             isTrackAPlaying = false
             updateStatus("Track A playback completed")
-            // Update service state
             audioService?.updatePlaybackState(false)
             if (!isTrackBPlaying) {
                 resetPlaybackControls()
-                // Stop service if both tracks complete
                 audioService?.stopForegroundService()
             }
         }
@@ -417,7 +394,6 @@ class MainActivity : AppCompatActivity() {
             updateStatus("Track B playback completed")
             if (!isTrackAPlaying) {
                 resetPlaybackControls()
-                // Stop service if both tracks complete
                 audioService?.stopForegroundService()
             }
         }
@@ -502,29 +478,22 @@ class MainActivity : AppCompatActivity() {
             playerB.stop()
             isTrackBPlaying = false
 
-            // Update service state
             audioService?.updatePlaybackState(isTrackAPlaying)
-
-            // Show notification to user
             Toast.makeText(this, "Bluetooth disconnected - Track B stopped", Toast.LENGTH_LONG).show()
             updateStatus("Bluetooth disconnected: Track B stopped, Track A continues")
 
-            // Update UI if only Track A is playing
             if (isTrackAPlaying && playerA.isCurrentlyPlaying()) {
                 updateStatus("Track A continues playing after Bluetooth disconnect")
             } else {
-                // Both tracks stopped, reset controls
                 resetPlaybackControls()
-                // Stop service if no tracks playing
                 audioService?.stopForegroundService()
             }
         } else {
-            // Track B wasn't playing, just update status
             updateStatus("Bluetooth disconnected (Track B was not playing)")
         }
     }
 
-    // UPDATED: Update device spinners to restore selections
+    // Update device spinners to restore selections
     private fun updateDeviceSpinners(devices: List<AudioDevice>) {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, devices)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -555,7 +524,7 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Device spinners updated with ${devices.size} devices")
     }
 
-    // UPDATED: Handle file selection with persistence
+    // Handle file selection with persistence
     private fun handleFileSelection(uri: Uri, isTrackA: Boolean) {
         try {
             val fileName = getFileName(uri)
@@ -584,7 +553,7 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
-            // CRITICAL: Take persistable permission IMMEDIATELY
+            // Take persistable permission immediately
             try {
                 val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 contentResolver.takePersistableUriPermission(uri, takeFlags)
@@ -602,16 +571,12 @@ class MainActivity : AppCompatActivity() {
                 selectedFileA = uri
                 tvFileNameA.text = displayName
                 updateStatus("File A selected: $fileName")
-
-                // Save to preferences immediately
                 preferencesManager.saveTrackAUri(uri, displayName)
                 Log.d(TAG, "💾 Saved Track A to preferences: $fileName")
             } else {
                 selectedFileB = uri
                 tvFileNameB.text = displayName
                 updateStatus("File B selected: $fileName")
-
-                // Save to preferences immediately
                 preferencesManager.saveTrackBUri(uri, displayName)
                 Log.d(TAG, "💾 Saved Track B to preferences: $fileName")
             }
@@ -621,8 +586,6 @@ class MainActivity : AppCompatActivity() {
             showError("Error selecting file: ${e.message}")
         }
     }
-
-
 
     private fun formatFileSize(bytes: Long): String {
         return when {
@@ -636,7 +599,6 @@ class MainActivity : AppCompatActivity() {
     private fun getFileName(uri: Uri): String {
         return try {
             contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                // FIX: Use DISPLAY_NAME column index, not SIZE
                 val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (nameIndex >= 0 && cursor.moveToFirst()) {
                     val name = cursor.getString(nameIndex)
@@ -651,8 +613,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
+    // UPDATED: Play dual audio with resume support
     private fun playDualAudio() {
+        // Check if this is a resume from pause
+        if (isPausedState) {
+            resumePlaybackWithDelay()
+            return
+        }
+
+        // Original play logic for starting from beginning
         if (selectedFileA == null || selectedFileB == null) {
             showError("Please select both audio files first")
             return
@@ -691,17 +660,16 @@ class MainActivity : AppCompatActivity() {
             val delayB = playerB.getCurrentDelay()
             updateStatus("Starting playback with delays: A=${delayA}ms, B=${delayB}ms")
 
-            // Start both tracks and track their states
+            // Start both tracks from beginning
             playerA.play()
             playerB.play()
 
             isTrackAPlaying = true
             isTrackBPlaying = true
+            isPausedState = false
 
-            // Start background service for persistence
+            // Start background service
             startBackgroundService()
-
-            // Update service with track info and state
             audioService?.updateTrackInfo(
                 getFileName(selectedFileA!!),
                 getFileName(selectedFileB!!)
@@ -720,31 +688,95 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun pausePlayback() {
-        playerA.pause()
-        playerB.pause()
+    // NEW: Resume with proper delay synchronization
+    private fun resumePlaybackWithDelay() {
+        try {
+            // Get current manual delay setting
+            val manualDelayB = seekBarDelayB.progress.toLong()
 
-        updateStatus("Playback paused")
+            Log.d(TAG, "Resuming from Track A position: ${pausedAtTrackAPosition}ms with Track B delay: ${manualDelayB}ms")
 
-        // Update service state
-        audioService?.updatePlaybackState(false)
+            // Calculate positions for resume
+            val trackAResumePosition = pausedAtTrackAPosition
+            val trackBResumePosition = pausedAtTrackAPosition + manualDelayB.toInt()
 
-        btnPlay.isEnabled = true
-        btnPause.isEnabled = false
+            updateStatus("Resuming with synchronization...")
+
+            // Resume Track A at its paused position
+            playerA.resumeFromPosition(trackAResumePosition)
+
+            // Resume Track B at Track A position + manual delay
+            playerB.resumeFromPosition(trackBResumePosition)
+
+            // Update states
+            isPausedState = false
+
+            // Update service and UI
+            audioService?.updatePlaybackState(true)
+
+            btnPlay.isEnabled = false
+            btnPause.isEnabled = true
+            btnStop.isEnabled = true
+
+            updateStatus("Resumed: Track A at ${formatTime(trackAResumePosition)}, Track B at ${formatTime(trackBResumePosition)}")
+
+            Log.d(TAG, "Successfully resumed with Track A at ${trackAResumePosition}ms, Track B at ${trackBResumePosition}ms")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resuming with delay", e)
+            showError("Error resuming playback: ${e.message}")
+        }
     }
 
+    // UPDATED: Pause playback with synchronization
+    private fun pausePlayback() {
+        if (!isTrackAPlaying && !isTrackBPlaying) {
+            Log.d(TAG, "No tracks playing, ignoring pause")
+            return
+        }
+
+        try {
+            // Step 1: Get current Track A position
+            pausedAtTrackAPosition = playerA.getCurrentPosition()
+            Log.d(TAG, "Pausing at Track A position: ${pausedAtTrackAPosition}ms")
+
+            // Step 2: Pause both tracks AT Track A's position (synchronizes them)
+            playerA.pauseAtPosition(pausedAtTrackAPosition)
+            playerB.pauseAtPosition(pausedAtTrackAPosition) // Both at same position
+
+            // Step 3: Update states
+            isPausedState = true
+
+            // Step 4: Update UI and service
+            updateStatus("Paused at ${formatTime(pausedAtTrackAPosition)} - both tracks synchronized")
+            audioService?.updatePlaybackState(false)
+
+            btnPlay.isEnabled = true
+            btnPause.isEnabled = false
+
+            Log.d(TAG, "Successfully paused both tracks at position: ${pausedAtTrackAPosition}ms")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during pause", e)
+            showError("Error pausing playback: ${e.message}")
+        }
+    }
+
+    // UPDATED: Stop playback and reset pause state
     private fun stopPlayback() {
         playerA.stop()
         playerB.stop()
 
         isTrackAPlaying = false
         isTrackBPlaying = false
+        isPausedState = false  // Reset pause state
+        pausedAtTrackAPosition = 0  // Reset saved position
 
         // Stop background service
         audioService?.stopForegroundService()
 
         resetPlaybackControls()
-        updateStatus("Playback stopped")
+        updateStatus("Playback stopped and reset")
     }
 
     private fun resetPlaybackControls() {
@@ -752,6 +784,14 @@ class MainActivity : AppCompatActivity() {
         btnPause.isEnabled = false
         btnStop.isEnabled = false
         progressBar.progress = 0
+    }
+
+    // NEW: Helper method for time formatting
+    private fun formatTime(milliseconds: Int): String {
+        val seconds = milliseconds / 1000
+        val minutes = seconds / 60
+        val remainingSeconds = seconds % 60
+        return String.format("%d:%02d", minutes, remainingSeconds)
     }
 
     private fun updateStatus(status: String) {
@@ -765,7 +805,7 @@ class MainActivity : AppCompatActivity() {
         Log.e(TAG, "Error: $message")
     }
 
-    // NEW: Save device selections when they change
+    // Save device selections when they change
     override fun onPause() {
         super.onPause()
 
