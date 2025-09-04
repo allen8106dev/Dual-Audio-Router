@@ -1,0 +1,1 @@
+A Dual Audio Routing App that can play one audio track on phone speakers, while another audio track on bluetooth device, no other app does this. It also has a manual delay to sync both tracks. Future updates like automated sync, volumes for separate tracks, pause, and audio slider in the making.
